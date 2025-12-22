@@ -1,7 +1,11 @@
 package main
 
 import (
+	"context"
 	"fmt"
+	"os"
+	"os/signal"
+	"syscall"
 	"time"
 
 	// "strings"
@@ -13,7 +17,24 @@ import (
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/glamour"
 	"github.com/charmbracelet/lipgloss"
+	"github.com/charmbracelet/log"
+	"github.com/charmbracelet/ssh"
+	"github.com/charmbracelet/wish"
+	bm "github.com/charmbracelet/wish/bubbletea"
+	lm "github.com/charmbracelet/wish/logging"
 )
+
+func teaHandler(s ssh.Session) (tea.Model, []tea.ProgramOption) {
+
+	m := initialModel()
+
+	user := s.User()
+	welcomeMsg := fmt.Sprintf("Olá, %s! Bem-vindo ao meu portfólio interativo via SSH!\n\nUse as setas para navegar e TAB para alternar o foco.\nPressione 'q' para sair.\n\n", user)
+
+	m.greetings = welcomeMsg
+
+	return m, []tea.ProgramOption{tea.WithAltScreen()}
+}
 
 // --- Estilos ---
 var (
@@ -107,14 +128,15 @@ func (i item) FilterValue() string { return i.title }
 
 // --- Modelo Principal ---
 type model struct {
-	progress progress.Model
-	list     list.Model
-	projects []item
-	viewport viewport.Model
-	focused  int // 0: List, 1: Viewport
-	loaded   bool
-	width    int
-	height   int
+	greetings string
+	progress  progress.Model
+	list      list.Model
+	projects  []item
+	viewport  viewport.Model
+	focused   int // 0: List, 1: Viewport
+	loaded    bool
+	width     int
+	height    int
 }
 
 func initialModel() model {
@@ -143,7 +165,7 @@ func initialModel() model {
 type tickMsg time.Time
 
 func tickCmd() tea.Cmd {
-	return tea.Tick(time.Millisecond*200, func(t time.Time) tea.Msg {
+	return tea.Tick(time.Millisecond*350, func(t time.Time) tea.Msg {
 		return tickMsg(t)
 	})
 }
@@ -260,7 +282,7 @@ func (m model) View() string {
 	}
 
 	if m.progress.Percent() < 1.0 {
-		return progressStyle.Render(m.progress.View() + "\n\nCarregando portfólio...")
+		return progressStyle.Render(m.greetings + "\n\n" + m.progress.View() + "\n\nCarregando portfólio...")
 	}
 
 	// Estiliza as bordas baseadas no foco
@@ -278,10 +300,53 @@ func (m model) View() string {
 }
 
 func main() {
-	// Nota: Para SSH via Wish, a lógica main seria diferente (middleware),
-	// mas o modelo acima funcionaria igual.
-	p := tea.NewProgram(initialModel(), tea.WithAltScreen())
-	if _, err := p.Run(); err != nil {
-		fmt.Println("Erro:", err)
+	// Configuração da porta (23234 é padrão para apps Wish)
+	port := "23234"
+	if os.Getenv("PORT") != "" {
+		port = os.Getenv("PORT")
+	}
+
+	// 2. Configura o Servidor SSH
+	s, err := wish.NewServer(
+		wish.WithAddress(fmt.Sprintf(":%s", port)),
+
+		// IMPORTANTE: Isso cria uma chave de host persistente.
+		// Sem isso, seus usuários verão aquele aviso de "WARNING: REMOTE HOST ID CHANGED"
+		// toda vez que você reiniciar o servidor.
+		wish.WithHostKeyPath(".ssh/id_ed25519"),
+
+		wish.WithMiddleware(
+			// O "Glue" (Cola) que liga o SSH ao Bubble Tea
+			bm.Middleware(teaHandler),
+
+			// Middleware de Log (opcional, mas bom para debug)
+			lm.Middleware(),
+		),
+	)
+	if err != nil {
+		log.Error("não foi possível criar servidor", "err", err)
+	}
+
+	// 3. Inicia o Servidor
+	done := make(chan os.Signal, 1)
+	signal.Notify(done, os.Interrupt, syscall.SIGINT, syscall.SIGTERM)
+
+	log.Info("Iniciando servidor SSH", "host", "0.0.0.0", "port", port)
+
+	go func() {
+		if err = s.ListenAndServe(); err != nil && err != ssh.ErrServerClosed {
+			log.Error("não foi possível iniciar", "err", err)
+			done <- nil
+		}
+	}()
+
+	<-done // Espera o sinal de Ctrl+C para parar
+	log.Info("Parando servidor SSH...")
+
+	// Shutdown gracioso (dá 30s para conexões ativas fecharem)
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+	if err := s.Shutdown(ctx); err != nil {
+		log.Error("erro no shutdown", "err", err)
 	}
 }

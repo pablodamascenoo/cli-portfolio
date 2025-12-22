@@ -1,0 +1,9 @@
+# Ignorar binários
+main
+portfolio
+
+# Ignorar chaves SSH geradas pelo Wish
+.ssh/
+*.pem
+id_ed25519
+id_ed25519.pub

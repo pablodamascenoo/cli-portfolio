@@ -12,9 +12,16 @@ FROM alpine:latest
 
 WORKDIR /app
 
+# --- ADICIONE ISTO ---
+# Diz ao Lip Gloss que o terminal suporta 256 cores
+ENV TERM=xterm-256color
+# Opcional: Para cores reais (TrueColor/RGB), se seu terminal suportar
+ENV COLORTERM=truecolor
+# ---------------------
 # 1. Instala certificados CA (caso seu app faça requisições HTTPS para fora)
 # e git/bash se precisar debuggar lá dentro, mas opcional.
-RUN apk add --no-cache ca-certificates
+# Instala ncurses-terminfo-base para suporte completo a cores
+RUN apk add --no-cache ca-certificates ncurses-terminfo-base
 
 # 2. CRUCIAL: Cria a pasta .ssh onde a chave será salva
 RUN mkdir -p .ssh

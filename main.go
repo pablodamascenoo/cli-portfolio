@@ -22,6 +22,7 @@ import (
 	"github.com/charmbracelet/wish"
 	bm "github.com/charmbracelet/wish/bubbletea"
 	lm "github.com/charmbracelet/wish/logging"
+	"github.com/muesli/termenv"
 )
 
 func teaHandler(s ssh.Session) (tea.Model, []tea.ProgramOption) {
@@ -301,6 +302,8 @@ func (m model) View() string {
 
 func main() {
 	// Configuração da porta (23234 é padrão para apps Wish)
+	lipgloss.SetColorProfile(termenv.TrueColor)
+
 	port := "23234"
 	if os.Getenv("PORT") != "" {
 		port = os.Getenv("PORT")
